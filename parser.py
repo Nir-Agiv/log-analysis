@@ -5,11 +5,11 @@ LOG_PATTERNS = [
     # SSH Log Patterns
     (
         "ssh", "Failed Login",
-        re.compile(r"(\w+\s+\d+\s+\d{2}:\d{2}:\d{2}).*sshd\[\d+\]: Failed password for(?: invalid user)? (\w+) from ([\d\.]+) port \d+ ssh2")
+        re.compile(r"(\w+\s+\d+\s+\d{2}:\d{2}:\d{2}).*sshd\[\d+\]: Failed password for(?: invalid user)? ([\w.-]+) from ([\d\.]+) port \d+ ssh2")
     ),
     (
         "ssh", "Successful Login",
-        re.compile(r"(\w+\s+\d+\s+\d{2}:\d{2}:\d{2}).*sshd\[\d+\]: Accepted password for (\w+) from ([\d\.]+) port \d+ ssh2")
+        re.compile(r"(\w+\s+\d+\s+\d{2}:\d{2}:\d{2}).*sshd\[\d+\]: Accepted password for ([\w.-]+) from ([\d\.]+) port \d+ ssh2")
     ),
     # Nginx Access Log Pattern
     (
