@@ -9,7 +9,15 @@
 <body>
     <div class="container">
         <h1>Security Event Alerts</h1>
-        <p>This dashboard displays alerts generated from monitoring <code>auth.log</code> in real-time. New alerts will appear automatically.</p>
+        <p>This dashboard displays alerts generated from monitoring logs in real-time.</p>
+        
+        <div class="filter-container">
+            <input type="text" id="ip-filter" placeholder="Filter by IP Address...">
+            <input type="text" id="type-filter" placeholder="Filter by Alert Type...">
+            <button id="filter-btn">Filter</button>
+            <button id="clear-btn">Clear Filters</button>
+        </div>
+
         <table id="alerts-table">
             <thead>
                 <tr>
@@ -27,9 +35,28 @@
     </div>
 
     <script>
+        const ipFilterInput = document.getElementById('ip-filter');
+        const typeFilterInput = document.getElementById('type-filter');
+        
         async function fetchAlerts() {
+            const ipFilter = ipFilterInput.value;
+            const typeFilter = typeFilterInput.value;
+
+            // Build the URL with query parameters if filters are present
+            let url = '/api/alerts';
+            const params = new URLSearchParams();
+            if (ipFilter) {
+                params.append('ip', ipFilter);
+            }
+            if (typeFilter) {
+                params.append('type', typeFilter);
+            }
+            if (params.toString()) {
+                url += '?' + params.toString();
+            }
+
             try {
-                const response = await fetch('/api/alerts');
+                const response = await fetch(url);
                 if (!response.ok) {
                     console.error('Failed to fetch alerts:', response.statusText);
                     return;
@@ -37,10 +64,12 @@
                 const alerts = await response.json();
                 const tableBody = document.querySelector('#alerts-table tbody');
                 
-                // A simple way to check if new data is different from old data
-                // to avoid flickering.
-                const currentContent = tableBody.innerHTML;
-                const newContent = alerts.map(alert => `
+                if (alerts.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5">No alerts found matching your criteria.</td></tr>';
+                    return;
+                }
+
+                tableBody.innerHTML = alerts.map(alert => `
                     <tr>
                         <td>${alert.id}</td>
                         <td>${alert.timestamp}</td>
@@ -50,19 +79,23 @@
                     </tr>
                 `).join('');
 
-                if (currentContent !== newContent) {
-                    tableBody.innerHTML = newContent;
-                }
-
             } catch (error) {
                 console.error('Error fetching or processing alerts:', error);
             }
         }
 
-        // Fetch alerts immediately on page load, then poll every 3 seconds
+        // Event Listeners
+        document.getElementById('filter-btn').addEventListener('click', fetchAlerts);
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            ipFilterInput.value = '';
+            typeFilterInput.value = '';
+            fetchAlerts();
+        });
+        
+        // Initial fetch and polling
         document.addEventListener('DOMContentLoaded', () => {
             fetchAlerts();
-            setInterval(fetchAlerts, 3000);
+            setInterval(fetchAlerts, 5000); // Poll every 5 seconds
         });
     </script>
 </body>

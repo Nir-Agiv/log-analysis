@@ -2,22 +2,20 @@ import os
 import threading
 import time
 import sqlite3
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 
+import config
 import parser
 import rules
 
-# --- Robust Path Configuration ---
-# Get the absolute path of the directory where the script is located
+# Use paths from the config module
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Join the base directory path with the filenames to create absolute paths
-LOG_FILE = os.path.join(BASE_DIR, "auth.log")
 DATABASE = os.path.join(BASE_DIR, "alerts.db")
+LOG_FILES = [os.path.join(BASE_DIR, f) for f in config.LOG_FILES]
 
 app = Flask(__name__)
 
 def init_db():
-    """Initializes the SQLite database and creates the alerts table if it doesn't exist."""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -33,7 +31,6 @@ def init_db():
     conn.close()
 
 def add_alert_to_db(alert):
-    """Adds a detected alert to the database."""
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
@@ -56,7 +53,6 @@ class LogMonitor(threading.Thread):
         self.stop_event = threading.Event()
 
     def run(self):
-        """Monitors the log file for new lines and processes them."""
         print(f"Starting to monitor log file: {self.log_file}")
         try:
             with open(self.log_file, 'r') as f:
@@ -64,7 +60,7 @@ class LogMonitor(threading.Thread):
                 while not self.stop_event.is_set():
                     line = f.readline()
                     if not line:
-                        time.sleep(0.5) # Increased sleep time slightly
+                        time.sleep(0.5)
                         continue
                     
                     parsed_line = parser.parse_log_line(line)
@@ -74,43 +70,59 @@ class LogMonitor(threading.Thread):
                         for alert in triggered_alerts:
                             print(f"ALERT! {alert}")
                             add_alert_to_db(alert)
-
-        except FileNotFoundError:
-            print(f"Error: Log file not found at {self.log_file}. Please create it in the same directory as the script.")
         except Exception as e:
-            print(f"An error occurred in the log monitor: {e}")
+            print(f"Error monitoring {os.path.basename(self.log_file)}: {e}")
 
     def stop(self):
         self.stop_event.set()
 
 @app.route('/')
 def index():
-    """Serves the main dashboard page."""
     return render_template('index.html')
 
 @app.route('/api/alerts')
 def get_alerts():
-    """API endpoint to fetch all alerts from the database."""
+    # Get filter parameters from the request URL
+    ip_filter = request.args.get('ip')
+    type_filter = request.args.get('type')
+
+    query = "SELECT * FROM alerts"
+    params = []
+    conditions = []
+
+    if ip_filter:
+        conditions.append("ip_address LIKE ?")
+        params.append(f"%{ip_filter}%")
+    if type_filter:
+        conditions.append("alert_type LIKE ?")
+        params.append(f"%{type_filter}%")
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY id DESC LIMIT 100"
+
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 50")
+    cursor.execute(query, params)
     alerts = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(alerts)
 
-
 if __name__ == '__main__':
-    # Ensure auth.log exists before starting
-    if not os.path.exists(LOG_FILE):
-        print(f"Log file not found at {LOG_FILE}. Creating an empty file.")
-        open(LOG_FILE, 'a').close()
-        
+    # Ensure log files exist
+    for lf in LOG_FILES:
+        if not os.path.exists(lf):
+            print(f"Log file not found at {lf}. Creating an empty file.")
+            open(lf, 'a').close()
+            
     init_db()
     
-    monitor = LogMonitor(LOG_FILE)
-    monitor.start()
+    # Start one monitor thread for each log file
+    monitors = [LogMonitor(f) for f in LOG_FILES]
+    for m in monitors:
+        m.start()
 
     print("Flask server starting. Open http://127.0.0.1:5000 in your browser.")
-    # use_reloader=False is critical to prevent the background thread from running twice.
     app.run(debug=True, use_reloader=False)
