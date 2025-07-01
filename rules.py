@@ -1,66 +1,97 @@
 import time
 from collections import defaultdict, deque
+from config import (BRUTE_FORCE_ATTEMPTS, BRUTE_FORCE_TIME_WINDOW,
+                    WEB_SCAN_ATTEMPTS, WEB_SCAN_TIME_WINDOW)
 
-# --- Rule Configuration ---
-# Brute-force rule: N attempts from the same IP within T seconds.
-BRUTE_FORCE_ATTEMPTS = 5
-BRUTE_FORCE_TIME_WINDOW = 60  # in seconds
+# --- State Management for Rules ---
+failed_logins = defaultdict(deque)      # For brute-force
+known_user_ips = defaultdict(set)       # For new IP detection
+web_404_counts = defaultdict(deque)     # For web scanning
 
-# --- State Management ---
-# Stores recent failed login attempts: {ip: deque([timestamp1, timestamp2, ...])}
-failed_logins = defaultdict(deque)
-
-# Stores IPs that have already triggered a brute-force alert to avoid spam.
-# {ip: timestamp_of_last_alert}
-alerted_ips = {}
-ALERT_COOLDOWN = 300 # 5 minutes
+alerted_events = {}  # { (alert_type, ip): timestamp }
 
 def apply_rules(parsed_log):
-    """
-    Applies a set of security rules to a parsed log entry.
-    
-    Args:
-        parsed_log (dict): A dictionary representing a single structured log event.
-        
-    Returns:
-        list: A list of alert dictionaries. An empty list if no rules are triggered.
-    """
     alerts = []
     if not parsed_log:
         return alerts
 
-    # Rule 1: Detect Brute-Force Attacks
-    if parsed_log["event_type"] == "Failed Login":
-        ip = parsed_log["ip_address"]
-        current_time = time.time()
-        
-        # Add current failed attempt timestamp to the deque for this IP
+    log_type = parsed_log.get("log_type")
+
+    if log_type == "ssh":
+        alerts.extend(_check_ssh_rules(parsed_log))
+    elif log_type == "nginx":
+        alerts.extend(_check_nginx_rules(parsed_log))
+    
+    return alerts
+
+def _check_ssh_rules(parsed_log):
+    """Checks all rules related to SSH logs."""
+    alerts = []
+    event_type = parsed_log.get("event_type")
+    ip = parsed_log.get("ip_address")
+    user = parsed_log.get("user")
+    current_time = time.time()
+    
+    # Rule 1: Brute-Force Detection
+    if event_type == "Failed Login":
         failed_logins[ip].append(current_time)
-        
-        # Remove old timestamps that are outside the time window
         while failed_logins[ip] and failed_logins[ip][0] < current_time - BRUTE_FORCE_TIME_WINDOW:
             failed_logins[ip].popleft()
-            
-        # Check if the threshold has been met
+        
         if len(failed_logins[ip]) >= BRUTE_FORCE_ATTEMPTS:
-            # Check if we are in a cooldown period for this IP
-            last_alert_time = alerted_ips.get(ip)
-            if not last_alert_time or current_time - last_alert_time > ALERT_COOLDOWN:
+            alert_key = ("Brute-Force", ip)
+            if not _is_on_cooldown(alert_key, current_time):
                 alerts.append({
                     "alert_type": "Brute-Force Detected",
-                    "description": f"{len(failed_logins[ip])} failed logins from IP {ip} within {BRUTE_FORCE_TIME_WINDOW} seconds.",
-                    "ip_address": ip,
-                    "timestamp": parsed_log["timestamp"]
+                    "description": f"{len(failed_logins[ip])} failed logins from IP {ip} in {BRUTE_FORCE_TIME_WINDOW}s.",
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
                 })
-                # Update the last alert time for this IP to start the cooldown
-                alerted_ips[ip] = current_time
-    
-    # Add more rules here in the future
-    # Example: Alert on successful login after many failures, etc.
+                alerted_events[alert_key] = current_time
+
+    # Rule 2: Successful Login from New IP
+    elif event_type == "Successful Login":
+        if ip not in known_user_ips[user]:
+            alert_key = ("New IP Login", f"{user}@{ip}")
+            if not _is_on_cooldown(alert_key, current_time, cooldown=86400): # 24h cooldown for this alert
+                alerts.append({
+                    "alert_type": "New IP Login",
+                    "description": f"User '{user}' logged in from a new IP address: {ip}",
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
+                })
+                alerted_events[alert_key] = current_time
+        # "Learn" this IP for the user
+        known_user_ips[user].add(ip)
 
     return alerts
 
-def clear_rules_state():
-    """Helper function for testing to reset the state of the rules engine."""
-    failed_logins.clear()
-    alerted_ips.clear()
+def _check_nginx_rules(parsed_log):
+    """Checks all rules related to Nginx logs."""
+    alerts = []
+    ip = parsed_log.get("ip_address")
+    status_code = parsed_log.get("status_code")
+    current_time = time.time()
+    
+    # Rule 3: Web Scanning Detection (many 404s)
+    if status_code == 404:
+        web_404_counts[ip].append(current_time)
+        while web_404_counts[ip] and web_404_counts[ip][0] < current_time - WEB_SCAN_TIME_WINDOW:
+            web_404_counts[ip].popleft()
+
+        if len(web_404_counts[ip]) >= WEB_SCAN_ATTEMPTS:
+            alert_key = ("Web Scan", ip)
+            if not _is_on_cooldown(alert_key, current_time):
+                alerts.append({
+                    "alert_type": "Web Scanning Detected",
+                    "description": f"{len(web_404_counts[ip])} 'Not Found' (404) errors from IP {ip} in {WEB_SCAN_TIME_WINDOW}s.",
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
+                })
+                alerted_events[alert_key] = current_time
+
+    return alerts
+
+def _is_on_cooldown(alert_key, current_time, cooldown=300):
+    """Checks if a specific alert for a specific key is on cooldown."""
+    last_alert_time = alerted_events.get(alert_key)
+    if last_alert_time and (current_time - last_alert_time < cooldown):
+        return True
+    return False
