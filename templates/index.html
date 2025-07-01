@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Analysis Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Security Event Alerts</h1>
+        <p>This dashboard displays alerts generated from monitoring <code>auth.log</code> in real-time. New alerts will appear automatically.</p>
+        <table id="alerts-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Timestamp</th>
+                    <th>Alert Type</th>
+                    <th>Description</th>
+                    <th>Source IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Alert data will be injected here by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function fetchAlerts() {
+            try {
+                const response = await fetch('/api/alerts');
+                if (!response.ok) {
+                    console.error('Failed to fetch alerts:', response.statusText);
+                    return;
+                }
+                const alerts = await response.json();
+                const tableBody = document.querySelector('#alerts-table tbody');
+                
+                // A simple way to check if new data is different from old data
+                // to avoid flickering.
+                const currentContent = tableBody.innerHTML;
+                const newContent = alerts.map(alert => `
+                    <tr>
+                        <td>${alert.id}</td>
+                        <td>${alert.timestamp}</td>
+                        <td class="alert-type">${alert.alert_type}</td>
+                        <td>${alert.description}</td>
+                        <td>${alert.ip_address || 'N/A'}</td>
+                    </tr>
+                `).join('');
+
+                if (currentContent !== newContent) {
+                    tableBody.innerHTML = newContent;
+                }
+
+            } catch (error) {
+                console.error('Error fetching or processing alerts:', error);
+            }
+        }
+
+        // Fetch alerts immediately on page load, then poll every 3 seconds
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAlerts();
+            setInterval(fetchAlerts, 3000);
+        });
+    </script>
+</body>
+</html>
