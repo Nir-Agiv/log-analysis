@@ -24,7 +24,8 @@ def init_db():
             timestamp TEXT NOT NULL,
             alert_type TEXT NOT NULL,
             description TEXT NOT NULL,
-            ip_address TEXT
+            ip_address TEXT,
+            raw_log TEXT
         )
     """)
     conn.commit()
@@ -35,8 +36,8 @@ def add_alert_to_db(alert):
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO alerts (timestamp, alert_type, description, ip_address) VALUES (?, ?, ?, ?)",
-            (alert['timestamp'], alert['alert_type'], alert['description'], alert.get('ip_address'))
+            "INSERT INTO alerts (timestamp, alert_type, description, ip_address, raw_log) VALUES (?, ?, ?, ?, ?)",
+            (alert['timestamp'], alert['alert_type'], alert['description'], alert.get('ip_address'), alert.get('raw_log', ''))
         )
         conn.commit()
     except sqlite3.Error as e:

@@ -1,0 +1,22 @@
+# --- SCENARIO 1: Normal, legitimate web traffic from various sources. ---
+# These are successful (200 OK) requests and should not trigger any alerts.
+# EXPECTED: No alert.
+180.76.15.131 - - [02/Jul/2025:10:00:01 +0000] "GET / HTTP/1.1" 200 612 "-" "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"
+66.249.66.1 - - [02/Jul/2025:10:05:30 +0000] "GET /about-us HTTP/1.1" 200 1504 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+
+# --- SCENARIO 2: A Web Vulnerability Scan from a single IP. ---
+# This IP makes more than 10 requests for pages that don't exist (404 Not Found) in a short time.
+# EXPECTED: A "Web Scanning Detected" alert for IP 45.9.20.69 should be triggered on the 10th '404' request.
+45.9.20.69 - - [02/Jul/2025:11:10:02 +0000] "GET /admin.php HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:03 +0000] "GET /wp-login.php HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:03 +0000] "GET /backup.sql HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:04 +0000] "GET /.env HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:05 +0000] "GET /config.json HTTP/1.1" 404 153 "-" "Scanner/1.0"
+# This successful request is mixed in to show that it doesn't interrupt the 404 count.
+45.9.20.69 - - [02/Jul/2025:11:10:06 +0000] "GET /index.html HTTP/1.1" 200 1200 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:07 +0000] "GET /old-page HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:08 +0000] "GET /test.php HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:09 +0000] "GET /info.php HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:10 +0000] "GET /phpmyadmin/ HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:11 +0000] "GET /webdav/ HTTP/1.1" 404 153 "-" "Scanner/1.0"
+45.9.20.69 - - [02/Jul/2025:11:10:12 +0000] "GET /old-config.zip HTTP/1.1" 404 153 "-" "Scanner/1.0"

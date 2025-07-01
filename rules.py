@@ -44,7 +44,8 @@ def _check_ssh_rules(parsed_log):
                 alerts.append({
                     "alert_type": "Brute-Force Detected",
                     "description": f"{len(failed_logins[ip])} failed logins from IP {ip} in {BRUTE_FORCE_TIME_WINDOW}s.",
-                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"],
+                    "raw_log": parsed_log["raw_log"]
                 })
                 alerted_events[alert_key] = current_time
 
@@ -56,7 +57,8 @@ def _check_ssh_rules(parsed_log):
                 alerts.append({
                     "alert_type": "New IP Login",
                     "description": f"User '{user}' logged in from a new IP address: {ip}",
-                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"],
+                    "raw_log": parsed_log["raw_log"]
                 })
                 alerted_events[alert_key] = current_time
         # "Learn" this IP for the user
@@ -83,7 +85,8 @@ def _check_nginx_rules(parsed_log):
                 alerts.append({
                     "alert_type": "Web Scanning Detected",
                     "description": f"{len(web_404_counts[ip])} 'Not Found' (404) errors from IP {ip} in {WEB_SCAN_TIME_WINDOW}s.",
-                    "ip_address": ip, "timestamp": parsed_log["timestamp"]
+                    "ip_address": ip, "timestamp": parsed_log["timestamp"],
+                    "raw_log": parsed_log["raw_log"]
                 })
                 alerted_events[alert_key] = current_time
 

@@ -1,0 +1,29 @@
+# --- SCENARIO 1: A normal, successful login for user 'jane.doe'. ---
+# This establishes a "known good" IP address for this user in the system's memory.
+# EXPECTED: No alert.
+Jul 02 10:15:01 sshd[1234]: Accepted password for jane.doe from 198.51.100.10 port 22 ssh2
+
+# --- SCENARIO 2: A Brute-Force Attack from a malicious IP. ---
+# This IP has more than 5 failed attempts in under 60 seconds.
+# EXPECTED: A "Brute-Force Detected" alert for IP 203.0.113.45 should be triggered on the 5th failure.
+Jul 02 10:20:01 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+Jul 02 10:20:03 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+Jul 02 10:20:05 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+Jul 02 10:20:07 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+Jul 02 10:20:09 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+Jul 02 10:20:11 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2
+
+# --- SCENARIO 3: User 'jane.doe' logs in from a new, unrecognized IP. ---
+# The system knows Jane from 198.51.100.10, but has never seen her use 8.8.4.4 before.
+# EXPECTED: A "New IP Login" alert for user 'jane.doe' from IP 8.8.4.4.
+Jul 02 10:25:05 sshd[1236]: Accepted password for jane.doe from 8.8.4.4 port 22 ssh2
+
+# --- SCENARIO 4: User 'jane.doe' logs in again from her original, known IP. ---
+# The system has already learned this IP, so this is considered normal behavior.
+# EXPECTED: No alert.
+Jul 02 10:30:10 sshd[1237]: Accepted password for jane.doe from 198.51.100.10 port 22 ssh2
+
+# --- SCENARIO 5: A single, isolated failed login. ---
+# This should not trigger any alerts, showing the system isn't too noisy.
+# EXPECTED: No alert.
+Jul 02 10:35:00 sshd[1238]: Failed password for admin from 10.0.0.5 port 22 ssh2
