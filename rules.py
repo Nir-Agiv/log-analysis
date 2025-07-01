@@ -98,3 +98,10 @@ def _is_on_cooldown(alert_key, current_time, cooldown=300):
     if last_alert_time and (current_time - last_alert_time < cooldown):
         return True
     return False
+
+def clear_state_for_testing():
+    """Resets all stateful dictionaries for clean testing."""
+    failed_logins.clear()
+    known_user_ips.clear()
+    web_404_counts.clear()
+    alerted_events.clear()

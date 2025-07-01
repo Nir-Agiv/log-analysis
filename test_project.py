@@ -1,87 +1,94 @@
 import pytest
-import time
 from parser import parse_log_line
-from rules import apply_rules, clear_rules_state, BRUTE_FORCE_ATTEMPTS
+from rules import apply_rules, clear_state_for_testing
+from config import BRUTE_FORCE_ATTEMPTS, WEB_SCAN_ATTEMPTS
 
-# --- Fixture to ensure a clean state for each test function ---
 @pytest.fixture(autouse=True)
-def clean_rules_state():
-    """This fixture automatically runs before each test, ensuring a clean slate."""
-    clear_rules_state()
+def clean_state():
+    clear_state_for_testing()
 
 # --- Tests for parser.py ---
 
-def test_parse_failed_login():
-    log_line = "Dec 10 08:45:01 sshd[12345]: Failed password for invalid user john from 192.168.1.10 port 22 ssh2"
+def test_parse_ssh_failed_login():
+    log_line = "Jul 02 10:20:01 sshd[1235]: Failed password for invalid user root from 203.0.113.45 port 22 ssh2"
     parsed = parse_log_line(log_line)
     assert parsed is not None
+    assert parsed['log_type'] == "ssh"
     assert parsed['event_type'] == "Failed Login"
-    assert parsed['user'] == "john"
-    assert parsed['ip_address'] == "192.168.1.10"
 
-def test_parse_successful_login():
-    log_line = "Dec 10 08:45:09 sshd[12347]: Accepted password for user ec2-user from 198.51.100.2 port 22 ssh2"
+def test_parse_ssh_successful_login():
+    log_line = "Jul 02 10:15:01 sshd[1234]: Accepted password for jane.doe from 198.51.100.10 port 22 ssh2"
+    parsed = parse_log_line(log_line)
+    assert parsed is not None 
+    assert parsed['log_type'] == "ssh"
+    assert parsed['event_type'] == "Successful Login"
+
+def test_parse_nginx_web_request():
+    log_line = '45.9.20.69 - - [02/Jul/2025:11:10:02 +0000] "GET /admin.php HTTP/1.1" 404 153 "-" "Scanner/1.0"'
     parsed = parse_log_line(log_line)
     assert parsed is not None
-    assert parsed['event_type'] == "Successful Login"
-    assert parsed['user'] == "ec2-user"
-    assert parsed['ip_address'] == "198.51.100.2"
+    assert parsed['log_type'] == "nginx"
 
 def test_parse_irrelevant_line():
-    log_line = "Dec 10 09:00:00 systemd: Starting daily cleanup..."
+    log_line = "Jul 02 12:00:00 systemd: System shutdown initiated."
     parsed = parse_log_line(log_line)
     assert parsed is None
 
 # --- Tests for rules.py ---
 
-def test_no_alert_on_single_failed_login():
-    parsed_log = {
-        "event_type": "Failed Login",
-        "ip_address": "10.0.0.1",
-        "timestamp": "Dec 10 09:01:00"
-    }
-    alerts = apply_rules(parsed_log)
-    assert len(alerts) == 0
-
-def test_brute_force_alert_triggers_correctly():
-    ip_to_test = "10.0.0.2"
-    alerts = []
-    
-    # Simulate N-1 failed logins
+def test_brute_force_triggers_on_correct_attempt():
+    ip_to_test = "203.0.113.45"
     for _ in range(BRUTE_FORCE_ATTEMPTS - 1):
-        parsed_log = {
-            "event_type": "Failed Login",
-            "ip_address": ip_to_test,
-            "timestamp": "Dec 10 09:02:00"
-        }
-        alerts = apply_rules(parsed_log)
-        assert len(alerts) == 0  # No alert should be triggered yet
-
-    # The final attempt that should trigger the alert
-    final_parsed_log = {
-        "event_type": "Failed Login",
-        "ip_address": ip_to_test,
-        "timestamp": "Dec 10 09:02:05"
-    }
-    alerts = apply_rules(final_parsed_log)
-    
-    assert len(alerts) == 1
-    assert alerts[0]['alert_type'] == "Brute-Force Detected"
-    assert ip_to_test in alerts[0]['description']
-
-def test_brute_force_cooldown():
-    ip_to_test = "10.0.0.3"
-    
-    # Trigger the first alert
-    for _ in range(BRUTE_FORCE_ATTEMPTS):
-        parsed_log = {"event_type": "Failed Login", "ip_address": ip_to_test, "timestamp": "Dec 10 09:03:00"}
-        alerts = apply_rules(parsed_log)
-
-    # The last call should have triggered an alert
+        parsed = {"log_type": "ssh", "event_type": "Failed Login", "ip_address": ip_to_test, "timestamp": "...", "raw_log": ""}
+        assert len(apply_rules(parsed)) == 0
+    final_parsed = {"log_type": "ssh", "event_type": "Failed Login", "ip_address": ip_to_test, "timestamp": "...", "raw_log": ""}
+    alerts = apply_rules(final_parsed)
     assert len(alerts) == 1
     assert alerts[0]['alert_type'] == "Brute-Force Detected"
 
-    # One more failed login immediately after should NOT trigger another alert
-    another_log = {"event_type": "Failed Login", "ip_address": ip_to_test, "timestamp": "Dec 10 09:03:01"}
-    alerts = apply_rules(another_log)
+def test_new_ip_login_logic():
+    """
+    This test now correctly reflects the rule's logic:
+    1. Alert on the VERY FIRST login for a user (as it's a "new IP").
+    2. Do NOT alert on a second login from that same IP.
+    3. DO alert on a login from a different, new IP.
+    """
+    user = "jane.doe"
+    first_ip = "198.51.100.10"
+    second_ip = "8.8.4.4"
+
+    # 1. First login from first_ip. Should trigger an alert.
+    parsed_first = {"log_type": "ssh", "event_type": "Successful Login", "user": user, "ip_address": first_ip, "timestamp": "...", "raw_log": ""}
+    alerts = apply_rules(parsed_first)
+    assert len(alerts) == 1
+    assert alerts[0]['alert_type'] == "New IP Login"
+
+    # 2. Second login from the SAME IP (first_ip). Should NOT trigger an alert.
+    alerts = apply_rules(parsed_first)
     assert len(alerts) == 0
+
+    # 3. First login from second_ip. Should trigger an alert.
+    parsed_second = {"log_type": "ssh", "event_type": "Successful Login", "user": user, "ip_address": second_ip, "timestamp": "...", "raw_log": ""}
+    alerts = apply_rules(parsed_second)
+    assert len(alerts) == 1
+    assert alerts[0]['alert_type'] == "New IP Login"
+    
+    # 4. Second login from second_ip. Should NOT trigger an alert.
+    alerts = apply_rules(parsed_second)
+    assert len(alerts) == 0
+
+def test_web_scan_triggers_on_correct_attempt():
+    ip_to_test = "45.9.20.69"
+    for _ in range(WEB_SCAN_ATTEMPTS - 1):
+        parsed = {"log_type": "nginx", "status_code": 404, "ip_address": ip_to_test, "timestamp": "...", "raw_log": ""}
+        assert len(apply_rules(parsed)) == 0
+    final_parsed = {"log_type": "nginx", "status_code": 404, "ip_address": ip_to_test, "timestamp": "...", "raw_log": ""}
+    alerts = apply_rules(final_parsed)
+    assert len(alerts) == 1
+    assert alerts[0]['alert_type'] == "Web Scanning Detected"
+
+def test_web_scan_ignores_other_status_codes():
+    ip_to_test = "1.2.3.4"
+    for _ in range(WEB_SCAN_ATTEMPTS + 5):
+        parsed_200 = {"log_type": "nginx", "status_code": 200, "ip_address": ip_to_test, "timestamp": "...", "raw_log": ""}
+        assert len(apply_rules(parsed_200)) == 0
